@@ -10,13 +10,22 @@ class PCNN (nn.Module) :
         The shape of input tensor is [b ,length]
     """
 
-    def __init__(self,W,embeddingDim,dropoutPro,labelNumbers,embeddingWeight):
+    def __init__(self,denseNumber,W,embeddingDim,dropoutPro,labelNumbers,embeddingWeight):
         super(PCNN,self).__init__()
-        self.embedding = nn.Embedding.from_pretrained(torch.from_numpy(embeddingWeight).float())
-        self.conv = nn.Conv2d(in_channels=1,out_channels=W,
-                              kernel_size=(3,embeddingDim + 2),padding=(1,0))
+        self.embedding = nn.Embedding.from_pretrained(embeddingWeight)
+        self.denseSeq = nn.Sequential()
+        for c in range(denseNumber) :
+            if c == 0 :
+                self.denseSeq.add_module("dense" + str(c),module=nn.Linear(in_features=3 * W,out_features=W))
+            else:
+                self.denseSeq.add_module("dense" + str(c),
+                                         module=nn.Linear(in_features=W,out_features=W))
+            self.denseSeq.add_module("batch" + str(c), module=nn.BatchNorm1d(W))
+            self.denseSeq.add_module("Activation" + str(c),module=nn.PReLU())
+        self.finalConv = nn.Conv2d(in_channels=1, out_channels=W,
+                                       kernel_size=(10, embeddingDim + 2))
         self.dropout = nn.Dropout(dropoutPro)
-        self.dense = nn.Linear(3*W,labelNumbers)
+        self.dense = nn.Linear(W,labelNumbers)
 
 
     def forward(self, x, positionOfEntity, positionEmbedding,device):
@@ -34,7 +43,7 @@ class PCNN (nn.Module) :
         x = torch.cat([x,positionEmbedding],dim=-1)
         x = torch.reshape(x,shape=[x.shape[0] , 1 , x.shape[1], x.shape[2]])
         ### [b , outChannels , length , 1]
-        x = self.conv(x)
+        x = self.finalConv(x)
         b = x.shape[0]
         outChannels = x.shape[1]
         length = x.shape[2]
@@ -67,18 +76,20 @@ class PCNN (nn.Module) :
             batchOutList.append(concatTensor)
         preTensor = torch.stack(batchOutList,dim=0)
         ### [b , 3*outChannels]
-        tanhTrans = torch.tanh(preTensor)
-        dropout = self.dropout(tanhTrans)
+        pTrans = torch.tanh(preTensor)
+        seq = self.denseSeq(pTrans)
+        dropout = self.dropout(seq)
         liner = self.dense(dropout)
         return F.softmax(liner,dim=1)
 
 if __name__ == "__main__":
-    testInput = torch.from_numpy(np.ones(shape=[3,10],dtype=np.long))
+    device = torch.device("cuda:0")
+    testInput = torch.from_numpy(np.ones(shape=[3,10],dtype=np.long)).long().to(device)
     testPositionOfEntity = np.array([[3,4],
                                      [5,6],
                                      [1,2]])
-    testEmbeddingWeight = np.ones(shape=[10,5],dtype=np.float32)
-    testPositionEmbedding = np.random.rand(3,10,2)
-    model = PCNN(W=3,embeddingDim=5,dropoutPro=0.5,labelNumbers=4,embeddingWeight=testEmbeddingWeight)
-    result = model(testInput,testPositionOfEntity,testPositionEmbedding)
+    testEmbeddingWeight = torch.from_numpy(np.ones(shape=[10,5],dtype=np.float32)).float().to(device)
+    testPositionEmbedding = torch.from_numpy(np.array(np.random.rand(3,10,2),dtype=np.float32)).float().to(device)
+    model = PCNN(2,W=3,embeddingDim=5,dropoutPro=0.5,labelNumbers=4,embeddingWeight=testEmbeddingWeight).to(device)
+    result = model(testInput,testPositionOfEntity,testPositionEmbedding,device)
     print(result)

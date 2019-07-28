@@ -6,13 +6,16 @@ trainDataPath = "D:\MyProgram\Data\dataset\ddi\\all_data\\train_data.txt"
 trainProcessedDataOutputPath = "D:\MyProgram\Data\dataset\ddi\\all_data\\trainProcessedData.txt"
 testDataPath = "D:\MyProgram\Data\dataset\ddi\\all_data\\test_data.txt"
 testProcessedDataOutputPath = "D:\MyProgram\Data\dataset\ddi\\all_data\\testProcessedData.txt"
-embeddingDim =150
 weightOutputPath = "D:\MyProgram\Data\dataset\ddi\\all_data\\weight.txt"
 vocabularyStatisticInforPath = "D:\MyProgram\Data\dataset\ddi\\all_data\\vocabularyInfor.txt"
 relationLabelStatisticInforPath = "D:\MyProgram\Data\dataset\ddi\\all_data\\relationInfor.txt"
-
+### It must be a folder path , not a file path.
+temporaryFileFolder = "D:\MyProgram\Data\dataset\ddi\\all_data\\"
+embeddingDim =150
 
 ### Operation
+if temporaryFileFolder.endswith("\\") is False:
+    temporaryFileFolder = temporaryFileFolder + "\\"
 content = ""
 patternOfWord = "[a-zA-Z]{1,}"
 vocabMap = {}
@@ -164,12 +167,13 @@ with open(testDataPath,"r") as rh:
                 tempList = []
 print("Test data has been processed .")
 print("Begin to train word2vec.")
-with open(".\\Content.txt","w") as wh:
+with open(temporaryFileFolder + "Content.txt","w") as wh:
     wh.write(content)
-word2vec.word2vec(".\\Content.txt",".\\tem.bin",size=embeddingDim,verbose=True,sample=1e-4,
+word2vec.word2vec(temporaryFileFolder + "Content.txt", temporaryFileFolder + "tem.bin",
+                  size=embeddingDim,verbose=True,sample=1e-4,
                   negative=10,min_count=0,cbow=0,window=8)
 print("Training is completed .")
-model = word2vec.load('.\\tem.bin')
+model = word2vec.load(temporaryFileFolder + 'tem.bin')
 for voca in model.vocab:
     if voca == "<\s>":
         print(voca)

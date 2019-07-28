@@ -7,21 +7,30 @@ from PCNN import PCNN
 import math
 from  sklearn.metrics import f1_score
 
+
 ### Config
 embeddingWeightFilePath = "D:\MyProgram\Data\dataset\ddi\\all_data\\weight.txt"
 testingDataPath = "D:\MyProgram\Data\dataset\ddi\\all_data\\testProcessedData.txt"
 labelInforFilePath = "D:\MyProgram\Data\dataset\ddi\\all_data\\relationInfor.txt"
-epoch = 15
-timesInOneEpoch = 20000
-lr = 1e-4
-wordsInOneSentence = 70
-checkPointTimes = 1000
-decayRate = 0.9
-decayTimes = 10000
+### The parameters below  must be a folder path , not a file path.
+relationTrainDataFolderPath = "D:\MyProgram\Data\dataset\ddi\\all_data\\" # It from the output folder of D step
+checkPointAndPredictFileFolder = "D:\MyProgram\Data\dataset\ddi\\all_data\\"
+### Model config
+epoch = 16
+timesInOneEpoch = 9000
+lr = 1e-3
+wordsInOneSentence = 90
+checkPointTimes = 9000
+decayRate = 0.96
+decayTimes = 9000
 displayTimes = 1000
 
 
 ### Operation
+if relationTrainDataFolderPath.endswith("\\") is False:
+    relationTrainDataFolderPath = relationTrainDataFolderPath + "\\"
+if checkPointAndPredictFileFolder.endswith("\\") is False:
+    checkPointAndPredictFileFolder = checkPointAndPredictFileFolder + "\\"
 vocabularyMap = {}
 vocabularyWeight = []
 lenOfEmbeddingDim = 0
@@ -39,7 +48,8 @@ with open(embeddingWeightFilePath,"r") as eh:
         vector = list(map(float, inforList[1:-1]))
         if len(vector) == lenOfEmbeddingDim:
             vocabularyWeight.append(vector)
-vocabularyWeight = np.array(vocabularyWeight,dtype=np.float32)
+device = torch.device("cuda:0")
+vocabularyWeight = torch.from_numpy(np.array(vocabularyWeight,dtype=np.float32)).float().to(device)
 print("There are " + str(len(vocabularyMap)) + " words in map.")
 print("The shape of embedding weight is ",vocabularyWeight.shape)
 labelInforMap = {}
@@ -144,8 +154,7 @@ def TestDataGenerator():
                     ### relationData : [labelNumber]
                     yield oneSentenceData, onePositionData, \
                           np.array([aPosition.index(0), bPosition.index(0)], dtype=np.int64), labelOneHot , sentence
-device = torch.device("cuda:0")
-pcnnModel = PCNN(W=10,embeddingDim=lenOfEmbeddingDim,dropoutPro=0.4,labelNumbers=labelNumber,embeddingWeight=vocabularyWeight).to(device)
+pcnnModel = PCNN(denseNumber=1,W=16,embeddingDim=lenOfEmbeddingDim,dropoutPro=0.5,labelNumbers=labelNumber,embeddingWeight=vocabularyWeight).to(device)
 # labelWeight = []
 # for i,number in enumerate(labelList):
 #     if i == 0 :
@@ -154,10 +163,10 @@ pcnnModel = PCNN(W=10,embeddingDim=lenOfEmbeddingDim,dropoutPro=0.4,labelNumbers
 #         labelWeight.append(1. / labelInforMap[number])
 # print(labelWeight)
 crit = nn.CrossEntropyLoss(reduction="mean").to(device)
-opt = optim.Adam(pcnnModel.parameters(),lr= lr)
+opt = optim.Adam(pcnnModel.parameters(),lr= lr,weight_decay=0.001,eps=1e-6)
 dataGeneratorList = []
 for label in labelList:
-    dataGeneratorList.append(DataGenerator(".\\" + label + ".txt"))
+    dataGeneratorList.append(DataGenerator(relationTrainDataFolderPath + label + ".txt"))
 trainingTimes = 0
 pcnnModel.train()
 for e in range(epoch):
@@ -202,20 +211,24 @@ for e in range(epoch):
             print("#############")
             print("Training Times ", trainingTimes)
             print("Loss is ", loss)
-            print("Learning rate is ",lr)
+            stateDic = opt.state_dict()
+            thisLR = stateDic["param_groups"][0]["lr"]
+            print("Learning rate is ",thisLR)
             print("Predict is ", predict)
             print("Label is ", relaLabel)
         if trainingTimes % decayTimes == 0 and trainingTimes != 0 :
             lr = lr * math.pow(decayRate, trainingTimes / decayTimes + 0.0)
+            stateDic = opt.state_dict()
+            stateDic["param_groups"][0]["lr"] = lr
+            opt.load_state_dict(stateDic)
         if trainingTimes % checkPointTimes == 0 and trainingTimes != 0:
             trueLabels = []
             predictLabels = []
-            opt = optim.SGD(pcnnModel.parameters(), lr, momentum=0.9, nesterov=True)
             print("Begin to test model .")
             count = 0
             allTest = 0
             pcnnModel.eval()
-            ph = open(".\\ckpt_" + str(trainingTimes) + "_Predict.txt","w")
+            ph = open( checkPointAndPredictFileFolder + "ckpt_" + str(trainingTimes) + "_Predict.txt","w")
             for testSen,testPosiEmbed,testEntiPosi,testLabel , testWordsSentence in TestDataGenerator():
                 for word in testWordsSentence :
                     ph.write(word + " ")
@@ -257,9 +270,10 @@ for e in range(epoch):
                     count += 1
                 allTest += 1
             ph.close()
-            microF1 = f1_score(y_pred=predictLabels,y_true=trueLabels,average='macro')
+            microF1 = f1_score(y_pred=predictLabels,y_true=trueLabels,average='micro')
             print("Micro F1 SCORE : ",microF1)
-            torch.save(pcnnModel.state_dict(), ".\\ckpt_" + str(trainingTimes) + "_ACC" + str(count * 1.0 / allTest) + "_MicroF1" + str(microF1) + ".pt")
+            torch.save(pcnnModel.state_dict(),checkPointAndPredictFileFolder +
+                       "ckpt_" + str(trainingTimes) + "_ACC" + str(count * 1.0 / allTest) + "_MicroF1" + str(microF1) + ".pt")
             pcnnModel.train()
 
 
