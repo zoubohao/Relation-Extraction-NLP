@@ -5,12 +5,27 @@ import numpy as np
 
 
 
+class ConvolutionCombine(nn.Module) :
+
+    def __init__(self,inChannels,outChannels,group = 4):
+        super(ConvolutionCombine,self).__init__()
+        self.conv = nn.Conv2d(in_channels=inChannels,out_channels=outChannels,kernel_size=1)
+        self.bn = nn.GroupNorm(group,outChannels)
+        self.trans = nn.PReLU(init=0.)
+
+    def forward(self, x):
+        xI = x.clone()
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.trans(x)
+        return torch.add(x,xI)
+
 class PCNN (nn.Module) :
     """
         The shape of input tensor is [b ,length]
     """
 
-    def __init__(self,denseNumber,W,embeddingDim,dropoutPro,labelNumbers,embeddingWeight):
+    def __init__(self,convNumber,denseNumber,W,embeddingDim,labelNumbers,embeddingWeight,dropoutPro = 0.4, convolutionKernelHeight = 5):
         super(PCNN,self).__init__()
         self.embedding = nn.Embedding.from_pretrained(embeddingWeight)
         self.denseSeq = nn.Sequential()
@@ -20,11 +35,16 @@ class PCNN (nn.Module) :
             else:
                 self.denseSeq.add_module("dense" + str(c),
                                          module=nn.Linear(in_features=W,out_features=W))
-            self.denseSeq.add_module("batch" + str(c), module=nn.BatchNorm1d(W))
-            self.denseSeq.add_module("Activation" + str(c),module=nn.PReLU())
-        self.finalConv = nn.Conv2d(in_channels=1, out_channels=W,
-                                       kernel_size=(10, embeddingDim + 2))
-        self.dropout = nn.Dropout(dropoutPro)
+            self.denseSeq.add_module("BatchNormLayer" + str(c), module=nn.BatchNorm1d(W))
+            self.denseSeq.add_module("Activation" + str(c),module=nn.PReLU(init=0.))
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=W,
+                                       kernel_size=(convolutionKernelHeight, embeddingDim + 2))
+        self.BN1 = nn.BatchNorm2d(W)
+        self.PRelu1 = nn.PReLU(init=0.)
+        self.convSeq = nn.Sequential()
+        for c in range(convNumber):
+            self.convSeq.add_module("ConvComb" + str(c),module=ConvolutionCombine(inChannels=W,outChannels=W))
+        self.finalDropOut = nn.Dropout(dropoutPro)
         self.dense = nn.Linear(W,labelNumbers)
 
 
@@ -43,13 +63,20 @@ class PCNN (nn.Module) :
         x = torch.cat([x,positionEmbedding],dim=-1)
         x = torch.reshape(x,shape=[x.shape[0] , 1 , x.shape[1], x.shape[2]])
         ### [b , outChannels , length , 1]
-        x = self.finalConv(x)
+        x = self.conv1(x)
+        x = self.BN1(x)
+        x = self.PRelu1(x)
+        xI = x.clone()
+        x = self.convSeq(x)
+        x = torch.add(x,xI)
+        ###
         b = x.shape[0]
         outChannels = x.shape[1]
         length = x.shape[2]
         ### The shape of x is [b , outChannels , length]
         x = torch.reshape(x,shape=[-1,outChannels,length])
         ### The shape of one element of batchTensorList is [1 , outChannels , length]
+        ### torch.split()
         batchTensorList = torch.chunk(x,chunks=b,dim=0)
         batchOutList = []
         for i,element in enumerate(batchTensorList):
@@ -76,20 +103,19 @@ class PCNN (nn.Module) :
             batchOutList.append(concatTensor)
         preTensor = torch.stack(batchOutList,dim=0)
         ### [b , 3*outChannels]
-        pTrans = torch.tanh(preTensor)
-        seq = self.denseSeq(pTrans)
-        dropout = self.dropout(seq)
-        liner = self.dense(dropout)
+        seq = self.denseSeq(preTensor)
+        dr = self.finalDropOut(seq)
+        liner = self.dense(dr)
         return F.softmax(liner,dim=1)
 
 if __name__ == "__main__":
-    device = torch.device("cuda:0")
-    testInput = torch.from_numpy(np.ones(shape=[3,10],dtype=np.long)).long().to(device)
+    device0 = torch.device("cuda:0")
+    testInput = torch.from_numpy(np.ones(shape=[3,10],dtype=np.long)).long().to(device0)
     testPositionOfEntity = np.array([[3,4],
                                      [5,6],
                                      [1,2]])
-    testEmbeddingWeight = torch.from_numpy(np.ones(shape=[10,5],dtype=np.float32)).float().to(device)
-    testPositionEmbedding = torch.from_numpy(np.array(np.random.rand(3,10,2),dtype=np.float32)).float().to(device)
-    model = PCNN(2,W=3,embeddingDim=5,dropoutPro=0.5,labelNumbers=4,embeddingWeight=testEmbeddingWeight).to(device)
-    result = model(testInput,testPositionOfEntity,testPositionEmbedding,device)
+    testEmbeddingWeight = torch.from_numpy(np.ones(shape=[10,5],dtype=np.float32)).float().to(device0)
+    testPositionEmbedding = torch.from_numpy(np.array(np.random.rand(3,10,2),dtype=np.float32)).float().to(device0)
+    model = PCNN(2,W=3,embeddingDim=5,dropoutPro=0.5,labelNumbers=4,embeddingWeight=testEmbeddingWeight).to(device0)
+    result = model(testInput,testPositionOfEntity,testPositionEmbedding,device0)
     print(result)
