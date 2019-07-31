@@ -27,7 +27,6 @@ displayTimes = 1000
 ### Net config
 convNumber = 6
 denseNumber = 1
-convolutionKernelHeight = 3
 W = 64
 dropOutPro = 0.3
 
@@ -168,8 +167,7 @@ def TestDataGenerator():
 #         labelWeight.append(1. / labelInforMap[number])
 # print(labelWeight)
 pcnnModel = PCNN(denseNumber = denseNumber, W = W,
-                 embeddingDim=lenOfEmbeddingDim, labelNumbers=labelNumber, embeddingWeight=vocabularyWeight,dropoutPro=dropOutPro,
-                 convolutionKernelHeight = convolutionKernelHeight,convNumber=convNumber).to(device)
+                 embeddingDim=lenOfEmbeddingDim, labelNumbers=labelNumber, embeddingWeight=vocabularyWeight,dropoutPro=dropOutPro,convNumber=convNumber).to(device)
 crit = nn.CrossEntropyLoss(reduction="mean").to(device)
 opt = optim.Adam(pcnnModel.parameters(),lr,amsgrad=True)
 dataGeneratorList = []

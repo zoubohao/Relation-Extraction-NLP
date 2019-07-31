@@ -25,7 +25,7 @@ class PCNN (nn.Module) :
         The shape of input tensor is [b ,length]
     """
 
-    def __init__(self,convNumber,denseNumber,W,embeddingDim,labelNumbers,embeddingWeight,dropoutPro = 0.4, convolutionKernelHeight = 5):
+    def __init__(self,convNumber,denseNumber,W,embeddingDim,labelNumbers,embeddingWeight,dropoutPro = 0.4):
         super(PCNN,self).__init__()
         self.embedding = nn.Embedding.from_pretrained(embeddingWeight)
         self.denseSeq = nn.Sequential()
@@ -37,10 +37,18 @@ class PCNN (nn.Module) :
                                          module=nn.Linear(in_features=W,out_features=W))
             self.denseSeq.add_module("BatchNormLayer" + str(c), module=nn.BatchNorm1d(W))
             self.denseSeq.add_module("Activation" + str(c),module=nn.PReLU(init=0.))
+        ### 1
         self.conv1 = nn.Conv2d(in_channels=1, out_channels=W,
-                                       kernel_size=(convolutionKernelHeight, embeddingDim + 2))
-        self.BN1 = nn.BatchNorm2d(W)
-        self.PRelu1 = nn.PReLU(init=0.)
+                                       kernel_size=(7, embeddingDim + 2),padding=(3,0))
+        ### 2
+        self.conv2 = nn.Conv2d(in_channels=1, out_channels=W,
+                                       kernel_size=(3, embeddingDim + 2),padding=(1,0))
+        ### 3
+        self.conv3 = nn.Conv2d(in_channels=1, out_channels=W,
+                                       kernel_size=(5, embeddingDim + 2),padding=(2,0))
+        self.BN = nn.BatchNorm2d(W)
+        self.trans = nn.PReLU(init=0.)
+        ### conv seq
         self.convSeq = nn.Sequential()
         for c in range(convNumber):
             self.convSeq.add_module("ConvComb" + str(c),module=ConvolutionCombine(inChannels=W,outChannels=W))
@@ -62,10 +70,19 @@ class PCNN (nn.Module) :
         positionEmbedding = positionEmbedding
         x = torch.cat([x,positionEmbedding],dim=-1)
         x = torch.reshape(x,shape=[x.shape[0] , 1 , x.shape[1], x.shape[2]])
-        ### [b , outChannels , length , 1]
-        x = self.conv1(x)
-        x = self.BN1(x)
-        x = self.PRelu1(x)
+        ### [b , 1 , length , 1]
+        ### 1
+        x1 = self.conv1(x.clone())
+        ### 2
+        x2 = self.conv2(x.clone())
+        ### 3
+        x3 = self.conv3(x.clone())
+        # print(x1.shape)
+        # print(x2.shape)
+        # print(x3.shape)
+        xStack = x1 + x2 + x3
+        x = self.BN(xStack)
+        x = self.trans(x)
         xI = x.clone()
         x = self.convSeq(x)
         x = torch.add(x,xI)
